@@ -21,6 +21,18 @@ export interface ResumeUploadResponse {
   message: string;
 }
 
+export interface AnalysisIssue {
+  section: string;
+  type: string;
+  detail: string;
+  location_hint: string | null;
+}
+
+export interface ResumeAnalysis {
+  ats_score: number;
+  issues: AnalysisIssue[];
+}
+
 export interface ResumeResponse {
   id: string;
   user_id: string;
@@ -29,7 +41,7 @@ export interface ResumeResponse {
   raw_text: string | null;
   parsed_json: Record<string, unknown> | null;
   ats_score: number | null;
-  analysis_report: Record<string, unknown> | null;
+  analysis_report: ResumeAnalysis | null;
   created_at: string;
 }
 
@@ -92,4 +104,9 @@ export const resumeApi = {
 
   get: (id: string, token: string) =>
     request<ResumeResponse>(`/api/resumes/${id}`, {}, token),
+    
+  analyze: (id: string, token: string) =>
+    request<ResumeAnalysis>(`/api/resumes/${id}/analyze`, {
+      method: "POST",
+    }, token),
 };
