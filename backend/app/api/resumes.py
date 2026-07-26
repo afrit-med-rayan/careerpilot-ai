@@ -6,9 +6,9 @@ from sqlalchemy import select
 
 from app.api.deps import get_current_user
 from app.db.models import Resume, User
-from app.db.session import get_db
+from app.db.session import get_db, AsyncSessionLocal
 from app.schemas import ResumeResponse, ResumeUploadResponse
-from app.services.parsing import parse_document
+from app.services.parsing import parse_document, segment_resume
 from app.services.storage import LocalStorage, get_storage_backend
 
 router = APIRouter(prefix="/api/resumes", tags=["resumes"])
@@ -17,9 +17,22 @@ ALLOWED_EXTENSIONS = {"pdf", "docx", "doc"}
 MAX_FILE_SIZE_MB = 10
 
 
+async def process_resume_background(resume_id: uuid.UUID, raw_text: str):
+    """Background task to segment the resume via LLM."""
+    parsed = await segment_resume(raw_text)
+    if parsed:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(Resume).where(Resume.id == resume_id))
+            resume = result.scalar_one_or_none()
+            if resume:
+                resume.parsed_json = parsed.model_dump()
+                await db.commit()
+
+
 @router.post("/upload", response_model=ResumeUploadResponse, status_code=status.HTTP_201_CREATED)
 async def upload_resume(
     file: UploadFile,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
     storage: LocalStorage = Depends(get_storage_backend),
@@ -66,6 +79,10 @@ async def upload_resume(
     await db.refresh(resume)
 
     preview = (parse_result.raw_text or "")[:300]
+    
+    # Queue the background segmentation task if we have text
+    if parse_result.raw_text and not parse_result.ocr_required:
+        background_tasks.add_task(process_resume_background, resume.id, parse_result.raw_text)
 
     return ResumeUploadResponse(
         resume_id=resume.id,

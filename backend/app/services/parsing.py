@@ -12,6 +12,10 @@ we flag ocr_required=True and return an empty string (OCR is out of scope for MV
 import io
 import logging
 from dataclasses import dataclass
+from typing import Optional
+
+from app.schemas.resume_parsed import ParsedResume
+from app.services.llm_client import generate_structured_json
 
 logger = logging.getLogger(__name__)
 
@@ -97,3 +101,29 @@ def parse_document(filename: str, content: bytes) -> ParseResult:
 
     else:
         raise ValueError(f"Unsupported file type: .{ext}. Only PDF and DOCX are supported.")
+
+
+async def segment_resume(raw_text: str) -> Optional[ParsedResume]:
+    """
+    Uses the LLM to segment raw resume text into the ParsedResume schema.
+    Returns None if text is empty or extraction fails completely.
+    """
+    if not raw_text.strip():
+        return None
+        
+    prompt = f"Please parse the following resume text into structured sections:\n\n{raw_text}"
+    system_prompt = (
+        "You are an expert HR parser. Extract the resume sections accurately. "
+        "Keep the original wording as much as possible. Do not invent any information."
+    )
+    
+    try:
+        return await generate_structured_json(
+            prompt=prompt,
+            schema_model=ParsedResume,
+            system_prompt=system_prompt,
+            temperature=0.0
+        )
+    except Exception as exc:
+        logger.error(f"Failed to segment resume: {exc}")
+        return None
