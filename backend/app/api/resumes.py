@@ -8,6 +8,8 @@ from app.api.deps import get_current_user
 from app.db.models import Resume, User
 from app.db.session import get_db, AsyncSessionLocal
 from app.schemas import ResumeResponse, ResumeUploadResponse
+from app.schemas.analysis import ResumeAnalysis
+from app.services.analysis import analyze_resume
 from app.services.parsing import parse_document, segment_resume
 from app.services.storage import LocalStorage, get_storage_backend
 
@@ -125,3 +127,37 @@ async def get_resume(
     if not resume:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
     return resume
+
+
+@router.post("/{resume_id}/analyze", response_model=ResumeAnalysis)
+async def analyze_resume_endpoint(
+    resume_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Run analysis on a parsed resume.
+    """
+    result = await db.execute(
+        select(Resume).where(Resume.id == resume_id, Resume.user_id == current_user.id)
+    )
+    resume = result.scalar_one_or_none()
+    
+    if not resume:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
+        
+    if not resume.parsed_json:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Resume has not been parsed yet or parsing failed."
+        )
+
+    analysis_result = await analyze_resume(resume.parsed_json)
+    
+    # Save the result
+    resume.ats_score = analysis_result.ats_score
+    resume.analysis_report = analysis_result.model_dump()
+    await db.commit()
+    
+    return analysis_result
+
