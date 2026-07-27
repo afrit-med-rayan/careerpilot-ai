@@ -5,12 +5,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.api.deps import get_current_user
-from app.db.models import Resume, User
-from app.db.session import get_db, AsyncSessionLocal
+from app.db.models import ArtifactType, GeneratedArtifact, Resume, User
+from app.db.session import AsyncSessionLocal, get_db
 from app.schemas import ResumeResponse, ResumeUploadResponse
 from app.schemas.analysis import ResumeAnalysis
+from app.schemas.rewrite import RewriteRequest, RewriteResponse
 from app.services.analysis import analyze_resume
 from app.services.parsing import parse_document, segment_resume
+from app.services.rewriting import rewrite_resume
 from app.services.storage import LocalStorage, get_storage_backend
 
 router = APIRouter(prefix="/api/resumes", tags=["resumes"])
@@ -160,4 +162,43 @@ async def analyze_resume_endpoint(
     await db.commit()
     
     return analysis_result
+
+
+@router.post("/{resume_id}/rewrite", response_model=RewriteResponse)
+async def rewrite_resume_endpoint(
+    resume_id: uuid.UUID,
+    body: RewriteRequest = RewriteRequest(),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Generate bullet point and section rewrites for a parsed resume, optionally tailored to a job description.
+    """
+    result = await db.execute(
+        select(Resume).where(Resume.id == resume_id, Resume.user_id == current_user.id)
+    )
+    resume = result.scalar_one_or_none()
+    
+    if not resume:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
+        
+    if not resume.parsed_json:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Resume has not been parsed yet or parsing failed."
+        )
+
+    rewrite_result = await rewrite_resume(resume.parsed_json, body)
+
+    # Persist artifact
+    artifact = GeneratedArtifact(
+        resume_id=resume.id,
+        type=ArtifactType.REWRITE,
+        content=rewrite_result.model_dump()
+    )
+    db.add(artifact)
+    await db.commit()
+    
+    return rewrite_result
+
 
