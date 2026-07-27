@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { resumeApi, ResumeResponse } from "@/lib/api";
+import { resumeApi, ResumeResponse, RewriteItem } from "@/lib/api";
 
-type Tab = "parsed" | "raw" | "analysis";
+type Tab = "parsed" | "analysis" | "rewrite" | "raw";
 
 export default function ResumeDetailPage() {
   const params = useParams();
@@ -17,6 +17,9 @@ export default function ResumeDetailPage() {
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState<Tab>("parsed");
   const [analyzing, setAnalyzing] = useState(false);
+  const [rewriting, setRewriting] = useState(false);
+  const [jobDescription, setJobDescription] = useState("");
+  const [rewrites, setRewrites] = useState<RewriteItem[]>([]);
 
   useEffect(() => {
     const token = localStorage.getItem("cp_token");
@@ -41,6 +44,21 @@ export default function ResumeDetailPage() {
       setError(e.message);
     } finally {
       setAnalyzing(false);
+    }
+  };
+
+  const handleRewrite = async () => {
+    const token = localStorage.getItem("cp_token");
+    if (!token) return;
+    setRewriting(true);
+    setError("");
+    try {
+      const res = await resumeApi.rewrite(id, jobDescription, token);
+      setRewrites(res.rewrites);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setRewriting(false);
     }
   };
 
@@ -75,18 +93,18 @@ export default function ResumeDetailPage() {
 
         {/* Tabs */}
         <div className="tabs">
-          {(["parsed", "analysis", "raw"] as Tab[]).map((t) => (
+          {(["parsed", "analysis", "rewrite", "raw"] as Tab[]).map((t) => (
             <button
               key={t}
               className={`tab ${activeTab === t ? "tab--active" : ""}`}
               onClick={() => setActiveTab(t)}
             >
-              {t === "parsed" ? "Parsed View" : t === "analysis" ? "Analysis" : "Raw Text"}
+              {t === "parsed" ? "Parsed View" : t === "analysis" ? "Analysis" : t === "rewrite" ? "Rewrite" : "Raw Text"}
             </button>
           ))}
-          {/* Phase 3+ tabs — disabled for now */}
-          {(["Rewrite", "Job Matches"] as string[]).map((label) => (
-            <button key={label} className="tab" disabled title="Coming in Phase 3+">
+          {/* Phase 4+ tabs — disabled for now */}
+          {(["Job Matches"] as string[]).map((label) => (
+            <button key={label} className="tab" disabled title="Coming in Phase 4+">
               {label}
             </button>
           ))}
@@ -213,6 +231,83 @@ export default function ResumeDetailPage() {
                 </div>
               </>
             ) : null}
+          </div>
+        )}
+
+        {/* Rewrite */}
+        {activeTab === "rewrite" && (
+          <div className="parsed-section">
+            <p className="parsed-section-title">AI Bullet Point & Summary Rewriter</p>
+
+            <div className="parsed-card" style={{ marginBottom: "1.5rem" }}>
+              <label style={{ display: "block", marginBottom: "0.5rem", fontWeight: 600 }}>
+                Target Job Description (Optional)
+              </label>
+              <textarea
+                value={jobDescription}
+                onChange={(e) => setJobDescription(e.target.value)}
+                placeholder="Paste the target job description here to tailor bullet point rewrites directly to job keywords..."
+                rows={4}
+                style={{
+                  width: "100%",
+                  padding: "0.75rem",
+                  borderRadius: "var(--radius-sm)",
+                  border: "1px solid var(--border)",
+                  background: "var(--bg)",
+                  color: "var(--text)",
+                  marginBottom: "1rem",
+                  fontFamily: "inherit",
+                  fontSize: "0.9rem",
+                }}
+              />
+              <button
+                className="btn-primary"
+                onClick={handleRewrite}
+                disabled={rewriting || !resume.parsed_json}
+              >
+                {rewriting ? "Generating Rewrites..." : "Generate High-Impact Rewrites"}
+              </button>
+            </div>
+
+            {rewriting ? (
+              <div className="empty-state">
+                <div className="spinner" style={{ margin: "0 auto" }} />
+                <p style={{ marginTop: "1rem" }}>Crafting STAR-format bullet point rewrites...</p>
+              </div>
+            ) : rewrites.length > 0 ? (
+              <div style={{ display: "grid", gap: "1.5rem" }}>
+                <h3 style={{ marginBottom: "0.5rem" }}>Suggested Bullet Point Improvements ({rewrites.length})</h3>
+                {rewrites.map((item, idx) => (
+                  <div key={idx} className="parsed-card">
+                    <div style={{ marginBottom: "0.75rem" }}>
+                      <span className="pill" style={{ background: "rgba(239, 68, 68, 0.15)", color: "#ef4444", marginBottom: "0.3rem", display: "inline-block" }}>
+                        Original
+                      </span>
+                      <p style={{ fontSize: "0.95rem", color: "var(--text-muted)", textDecoration: "line-through" }}>
+                        {item.original}
+                      </p>
+                    </div>
+
+                    <div style={{ marginBottom: "0.75rem" }}>
+                      <span className="pill" style={{ background: "rgba(34, 197, 94, 0.15)", color: "#22c55e", marginBottom: "0.3rem", display: "inline-block" }}>
+                        AI Rewritten
+                      </span>
+                      <p style={{ fontSize: "1rem", fontWeight: 500, color: "var(--text)" }}>
+                        {item.rewritten}
+                      </p>
+                    </div>
+
+                    <div style={{ background: "var(--bg)", padding: "0.5rem 0.75rem", borderRadius: "var(--radius-sm)", fontSize: "0.85rem", color: "var(--text-muted)" }}>
+                      💡 <strong>Why:</strong> {item.reason}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">
+                <p>Click "Generate High-Impact Rewrites" to transform weak bullets into STAR-format achievements.</p>
+              </div>
+            )}
           </div>
         )}
 

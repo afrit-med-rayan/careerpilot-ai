@@ -33,6 +33,16 @@ export interface ResumeAnalysis {
   issues: AnalysisIssue[];
 }
 
+export interface RewriteItem {
+  original: string;
+  rewritten: string;
+  reason: string;
+}
+
+export interface RewriteResponse {
+  rewrites: RewriteItem[];
+}
+
 export interface ResumeResponse {
   id: string;
   user_id: string;
@@ -108,5 +118,12 @@ export const resumeApi = {
   analyze: (id: string, token: string) =>
     request<ResumeAnalysis>(`/api/resumes/${id}/analyze`, {
       method: "POST",
+    }, token),
+
+  rewrite: (id: string, jobDescription: string | undefined, token: string) =>
+    request<RewriteResponse>(`/api/resumes/${id}/rewrite`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ job_description: jobDescription || null }),
     }, token),
 };
