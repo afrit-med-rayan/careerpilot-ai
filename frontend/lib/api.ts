@@ -43,6 +43,22 @@ export interface RewriteResponse {
   rewrites: RewriteItem[];
 }
 
+export interface JobMatchItem {
+  job_id: string;
+  external_id: string;
+  source: string;
+  title: string;
+  company: string;
+  description: string;
+  location: string | null;
+  url: string;
+  similarity_score: number;
+}
+
+export interface MatchJobsResponse {
+  matches: JobMatchItem[];
+}
+
 export interface ResumeResponse {
   id: string;
   user_id: string;
@@ -125,5 +141,12 @@ export const resumeApi = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ job_description: jobDescription || null }),
+    }, token),
+
+  matchJobs: (id: string, query: string, location: string | undefined, token: string) =>
+    request<MatchJobsResponse>(`/api/resumes/${id}/match-jobs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, location: location || null }),
     }, token),
 };

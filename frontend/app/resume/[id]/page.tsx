@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { resumeApi, ResumeResponse, RewriteItem } from "@/lib/api";
+import { resumeApi, ResumeResponse, RewriteItem, JobMatchItem } from "@/lib/api";
 
-type Tab = "parsed" | "analysis" | "rewrite" | "raw";
+type Tab = "parsed" | "analysis" | "rewrite" | "matches" | "raw";
 
 export default function ResumeDetailPage() {
   const params = useParams();
@@ -20,6 +20,10 @@ export default function ResumeDetailPage() {
   const [rewriting, setRewriting] = useState(false);
   const [jobDescription, setJobDescription] = useState("");
   const [rewrites, setRewrites] = useState<RewriteItem[]>([]);
+  const [jobQuery, setJobQuery] = useState("");
+  const [jobLocation, setJobLocation] = useState("");
+  const [jobMatches, setJobMatches] = useState<JobMatchItem[]>([]);
+  const [matchingJobs, setMatchingJobs] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("cp_token");
@@ -62,6 +66,22 @@ export default function ResumeDetailPage() {
     }
   };
 
+  const handleMatchJobs = async () => {
+    const token = localStorage.getItem("cp_token");
+    if (!token) return;
+    if (!jobQuery.strip && !jobQuery) return;
+    setMatchingJobs(true);
+    setError("");
+    try {
+      const res = await resumeApi.matchJobs(id, jobQuery, jobLocation, token);
+      setJobMatches(res.matches);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setMatchingJobs(false);
+    }
+  };
+
   if (loading) return (
     <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh" }}>
       <div className="spinner" />
@@ -93,18 +113,18 @@ export default function ResumeDetailPage() {
 
         {/* Tabs */}
         <div className="tabs">
-          {(["parsed", "analysis", "rewrite", "raw"] as Tab[]).map((t) => (
+          {(["parsed", "analysis", "rewrite", "matches", "raw"] as Tab[]).map((t) => (
             <button
               key={t}
               className={`tab ${activeTab === t ? "tab--active" : ""}`}
               onClick={() => setActiveTab(t)}
             >
-              {t === "parsed" ? "Parsed View" : t === "analysis" ? "Analysis" : t === "rewrite" ? "Rewrite" : "Raw Text"}
+              {t === "parsed" ? "Parsed View" : t === "analysis" ? "Analysis" : t === "rewrite" ? "Rewrite" : t === "matches" ? "Job Matches" : "Raw Text"}
             </button>
           ))}
-          {/* Phase 4+ tabs — disabled for now */}
-          {(["Job Matches"] as string[]).map((label) => (
-            <button key={label} className="tab" disabled title="Coming in Phase 4+">
+          {/* Phase 5+ tabs — disabled for now */}
+          {(["Cover Letter / Interview Qs"] as string[]).map((label) => (
+            <button key={label} className="tab" disabled title="Coming in Phase 5+">
               {label}
             </button>
           ))}
@@ -231,6 +251,123 @@ export default function ResumeDetailPage() {
                 </div>
               </>
             ) : null}
+          </div>
+        )}
+
+        {/* Job Matches */}
+        {activeTab === "matches" && (
+          <div className="parsed-section">
+            <p className="parsed-section-title">AI Vector Job Search & Match Engine</p>
+
+            <div className="parsed-card" style={{ marginBottom: "1.5rem" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
+                <div>
+                  <label style={{ display: "block", marginBottom: "0.4rem", fontWeight: 600 }}>Job Role / Keywords *</label>
+                  <input
+                    type="text"
+                    value={jobQuery}
+                    onChange={(e) => setJobQuery(e.target.value)}
+                    placeholder="e.g. Software Engineer, Full Stack, Data Scientist"
+                    style={{
+                      width: "100%",
+                      padding: "0.6rem 0.8rem",
+                      borderRadius: "var(--radius-sm)",
+                      border: "1px solid var(--border)",
+                      background: "var(--bg)",
+                      color: "var(--text)",
+                      fontSize: "0.9rem",
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", marginBottom: "0.4rem", fontWeight: 600 }}>Location (Optional)</label>
+                  <input
+                    type="text"
+                    value={jobLocation}
+                    onChange={(e) => setJobLocation(e.target.value)}
+                    placeholder="e.g. Remote, San Francisco, London"
+                    style={{
+                      width: "100%",
+                      padding: "0.6rem 0.8rem",
+                      borderRadius: "var(--radius-sm)",
+                      border: "1px solid var(--border)",
+                      background: "var(--bg)",
+                      color: "var(--text)",
+                      fontSize: "0.9rem",
+                    }}
+                  />
+                </div>
+              </div>
+              <button
+                className="btn-primary"
+                onClick={handleMatchJobs}
+                disabled={matchingJobs || !jobQuery.trim()}
+              >
+                {matchingJobs ? "Matching Vector Embeddings..." : "Find Ranked Job Matches"}
+              </button>
+            </div>
+
+            {matchingJobs ? (
+              <div className="empty-state">
+                <div className="spinner" style={{ margin: "0 auto" }} />
+                <p style={{ marginTop: "1rem" }}>Fetching live job postings & calculating vector similarity...</p>
+              </div>
+            ) : jobMatches.length > 0 ? (
+              <div style={{ display: "grid", gap: "1.25rem" }}>
+                <h3 style={{ marginBottom: "0.5rem" }}>Ranked Opportunities ({jobMatches.length})</h3>
+                {jobMatches.map((job) => {
+                  const percent = Math.round(job.similarity_score * 100);
+                  const badgeColor = percent >= 75 ? "var(--success)" : percent >= 50 ? "var(--warning)" : "var(--text-muted)";
+                  return (
+                    <div key={job.job_id} className="parsed-card">
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.5rem" }}>
+                        <div>
+                          <h4 style={{ fontSize: "1.1rem", margin: 0 }}>{job.title}</h4>
+                          <p style={{ fontSize: "0.9rem", color: "var(--text-muted)", margin: "0.2rem 0 0 0" }}>
+                            {job.company} · {job.location || "Remote"}
+                          </p>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <span
+                            className="pill"
+                            style={{
+                              background: "rgba(99, 102, 241, 0.15)",
+                              color: badgeColor,
+                              fontWeight: 700,
+                              fontSize: "0.9rem",
+                              padding: "0.25rem 0.6rem",
+                            }}
+                          >
+                            {percent}% Match
+                          </span>
+                          <span style={{ display: "block", fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.25rem", textTransform: "uppercase" }}>
+                            {job.source}
+                          </span>
+                        </div>
+                      </div>
+
+                      <p style={{ fontSize: "0.88rem", color: "var(--text-muted)", margin: "0.75rem 0 1rem 0", lineHeight: 1.5 }}>
+                        {job.description}
+                      </p>
+
+                      <a
+                        href={job.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-ghost"
+                        style={{ display: "inline-block", fontSize: "0.85rem", textDecoration: "none" }}
+                      >
+                        View & Apply on {job.source.toUpperCase()} →
+                      </a>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="empty-state">
+                <p>Enter a job title or role keyword above to trigger real-time job ingestion and vector matching.</p>
+              </div>
+            )}
           </div>
         )}
 
