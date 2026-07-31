@@ -9,8 +9,10 @@ from app.db.models import ArtifactType, GeneratedArtifact, Resume, User
 from app.db.session import AsyncSessionLocal, get_db
 from app.schemas import ResumeResponse, ResumeUploadResponse
 from app.schemas.analysis import ResumeAnalysis
+from app.schemas.job_match import MatchJobsRequest, MatchJobsResponse
 from app.schemas.rewrite import RewriteRequest, RewriteResponse
 from app.services.analysis import analyze_resume
+from app.services.job_matching import match_resume_to_jobs
 from app.services.parsing import parse_document, segment_resume
 from app.services.rewriting import rewrite_resume
 from app.services.storage import LocalStorage, get_storage_backend
@@ -200,5 +202,27 @@ async def rewrite_resume_endpoint(
     await db.commit()
     
     return rewrite_result
+
+
+@router.post("/{resume_id}/match-jobs", response_model=MatchJobsResponse)
+async def match_jobs_endpoint(
+    resume_id: uuid.UUID,
+    body: MatchJobsRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Search job postings, calculate similarity score against resume text & skills, and return ranked job matches.
+    """
+    result = await db.execute(
+        select(Resume).where(Resume.id == resume_id, Resume.user_id == current_user.id)
+    )
+    resume = result.scalar_one_or_none()
+
+    if not resume:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
+
+    return await match_resume_to_jobs(db, resume, body)
+
 
 
