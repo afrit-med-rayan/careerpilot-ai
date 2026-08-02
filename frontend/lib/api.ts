@@ -59,6 +59,26 @@ export interface MatchJobsResponse {
   matches: JobMatchItem[];
 }
 
+export interface CoverLetterResponse {
+  cover_letter: string;
+}
+
+export interface InterviewQuestionItem {
+  question: string;
+  type: "technical" | "behavioral";
+  suggested_answer_notes: string;
+}
+
+export interface InterviewQuestionsResponse {
+  questions: InterviewQuestionItem[];
+}
+
+export interface SkillGapResponse {
+  matched_skills: string[];
+  missing_skills: string[];
+  match_percentage: number;
+}
+
 export interface ResumeResponse {
   id: string;
   user_id: string;
@@ -149,4 +169,25 @@ export const resumeApi = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query, location: location || null }),
     }, token),
+
+  generateCoverLetter: (id: string, tone: "formal" | "conversational" | "enthusiastic", jobId: string | undefined, token: string) => {
+    const q = jobId ? `?job_id=${jobId}` : "";
+    return request<CoverLetterResponse>(`/api/resumes/${id}/cover-letter${q}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tone }),
+    }, token);
+  },
+
+  generateInterviewQuestions: (id: string, jobId: string | undefined, token: string) => {
+    const q = jobId ? `?job_id=${jobId}` : "";
+    return request<InterviewQuestionsResponse>(`/api/resumes/${id}/interview-questions${q}`, {
+      method: "POST",
+    }, token);
+  },
+
+  getSkillGap: (id: string, jobId: string | undefined, token: string) => {
+    const q = jobId ? `?job_id=${jobId}` : "";
+    return request<SkillGapResponse>(`/api/resumes/${id}/skill-gap${q}`, {}, token);
+  },
 };
