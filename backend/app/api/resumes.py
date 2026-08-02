@@ -1,17 +1,29 @@
 import uuid
+from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.api.deps import get_current_user
-from app.db.models import ArtifactType, GeneratedArtifact, Resume, User
+from app.db.models import ArtifactType, GeneratedArtifact, JobPosting, Resume, User
 from app.db.session import AsyncSessionLocal, get_db
 from app.schemas import ResumeResponse, ResumeUploadResponse
 from app.schemas.analysis import ResumeAnalysis
+from app.schemas.generation import (
+    CoverLetterRequest,
+    CoverLetterResponse,
+    InterviewQuestionsResponse,
+    SkillGapResponse,
+)
 from app.schemas.job_match import MatchJobsRequest, MatchJobsResponse
 from app.schemas.rewrite import RewriteRequest, RewriteResponse
 from app.services.analysis import analyze_resume
+from app.services.generation import (
+    analyze_skill_gap,
+    generate_cover_letter,
+    generate_interview_questions,
+)
 from app.services.job_matching import match_resume_to_jobs
 from app.services.parsing import parse_document, segment_resume
 from app.services.rewriting import rewrite_resume
@@ -223,6 +235,99 @@ async def match_jobs_endpoint(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
 
     return await match_resume_to_jobs(db, resume, body)
+
+
+async def _get_user_resume_and_job(
+    resume_id: uuid.UUID,
+    job_id: Optional[uuid.UUID],
+    db: AsyncSession,
+    user_id: uuid.UUID,
+):
+    res_stmt = select(Resume).where(Resume.id == resume_id, Resume.user_id == user_id)
+    resume = (await db.execute(res_stmt)).scalar_one_or_none()
+    if not resume:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
+
+    job = None
+    if job_id:
+        job_stmt = select(JobPosting).where(JobPosting.id == job_id)
+        job = (await db.execute(job_stmt)).scalar_one_or_none()
+
+    return resume, job
+
+
+@router.post("/{resume_id}/cover-letter", response_model=CoverLetterResponse)
+async def cover_letter_endpoint(
+    resume_id: uuid.UUID,
+    job_id: Optional[uuid.UUID] = None,
+    body: CoverLetterRequest = CoverLetterRequest(),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Generate a tailored cover letter for a candidate resume and optional target job."""
+    resume, job = await _get_user_resume_and_job(resume_id, job_id, db, current_user.id)
+    result = await generate_cover_letter(resume, job, body)
+
+    # Save artifact
+    artifact = GeneratedArtifact(
+        resume_id=resume.id,
+        job_id=job.id if job else None,
+        type=ArtifactType.cover_letter,
+        content=result.model_dump(),
+    )
+    db.add(artifact)
+    await db.commit()
+
+    return result
+
+
+@router.post("/{resume_id}/interview-questions", response_model=InterviewQuestionsResponse)
+async def interview_questions_endpoint(
+    resume_id: uuid.UUID,
+    job_id: Optional[uuid.UUID] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Generate technical and behavioral interview preparation questions and notes."""
+    resume, job = await _get_user_resume_and_job(resume_id, job_id, db, current_user.id)
+    result = await generate_interview_questions(resume, job)
+
+    # Save artifact
+    artifact = GeneratedArtifact(
+        resume_id=resume.id,
+        job_id=job.id if job else None,
+        type=ArtifactType.interview_questions,
+        content=result.model_dump(),
+    )
+    db.add(artifact)
+    await db.commit()
+
+    return result
+
+
+@router.get("/{resume_id}/skill-gap", response_model=SkillGapResponse)
+async def skill_gap_endpoint(
+    resume_id: uuid.UUID,
+    job_id: Optional[uuid.UUID] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Perform a skill gap analysis comparing candidate skills against job requirements."""
+    resume, job = await _get_user_resume_and_job(resume_id, job_id, db, current_user.id)
+    result = await analyze_skill_gap(resume, job)
+
+    # Save artifact
+    artifact = GeneratedArtifact(
+        resume_id=resume.id,
+        job_id=job.id if job else None,
+        type=ArtifactType.skill_gap,
+        content=result.model_dump(),
+    )
+    db.add(artifact)
+    await db.commit()
+
+    return result
+
 
 
 
